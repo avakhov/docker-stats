@@ -5,13 +5,41 @@ import (
 	"fmt"
 	"github.com/avakhov/docker-stats/stats"
 	"github.com/avakhov/docker-stats/util"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 	"os"
-	"strings"
-	"time"
 )
+
+var upMetric = prometheus.NewDesc("docker_up", "is container up", append(stats.LABELS, "id"), nil)
+var memUsedMetric = prometheus.NewDesc("docker_mem_used", "memory used", append(stats.LABELS, "id"), nil)
+var memTotalMetric = prometheus.NewDesc("docker_mem_total", "memory total", append(stats.LABELS, "id"), nil)
+var cpuUsedMetric = prometheus.NewDesc("docker_cpu_used", "cpu used", append(stats.LABELS, "id"), nil)
+
+type Exporter struct {
+	stats *stats.Stats
+}
+
+func NewExporter(stats *stats.Stats) *Exporter {
+	return &Exporter{stats: stats}
+}
+
+func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
+	ch <- upMetric
+	ch <- memUsedMetric
+	ch <- memTotalMetric
+	ch <- cpuUsedMetric
+}
+
+func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
+	for _, c := range e.stats.GetContainers() {
+    id := c.ID[:8]
+		ch <- prometheus.MustNewConstMetric(upMetric, prometheus.GaugeValue, float64(c.Up), append(c.Labels, id)...)
+		ch <- prometheus.MustNewConstMetric(memUsedMetric, prometheus.GaugeValue, float64(c.MemUsed), append(c.Labels, id)...)
+		ch <- prometheus.MustNewConstMetric(memTotalMetric, prometheus.GaugeValue, float64(c.MemTotal), append(c.Labels, id)...)
+		ch <- prometheus.MustNewConstMetric(cpuUsedMetric, prometheus.GaugeValue, c.CpuUsed, append(c.Labels, id)...)
+	}
+}
 
 func doMain(args []string) error {
 	// parse args
@@ -31,30 +59,25 @@ func doMain(args []string) error {
 		return nil
 	}
 
-	// stats
-	s := stats.NewStats()
-	go s.Run()
+	// run stats grabber
+	stats := stats.NewStats()
+	go stats.Run()
 
-	// web server
-	e := echo.New()
-	f := "method: ${method}, uri: ${uri}, status: ${status}, latency: ${latency_human}\n"
-	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{Format: f}))
-	e.Use(middleware.TimeoutWithConfig(middleware.TimeoutConfig{Timeout: 60 * time.Second}))
-	e.GET("/", func(c echo.Context) error {
-		out := "<a href='/metrics'>metrics</a>"
-		return c.HTML(http.StatusOK, out)
-	})
-	e.GET("/metrics", func(c echo.Context) error {
-		out := []string{}
-		containers := s.GetContainers()
-		out = append(out, fmt.Sprintf("# HELP docker_up container is up"))
-		out = append(out, fmt.Sprintf("# TYPE docker_up counter"))
-		for _, c := range containers {
-			out = append(out, fmt.Sprintf("docker_up{container=\"%s\"} %d", c.ID, c.Up))
+	// run expoter
+	exporter := NewExporter(stats)
+	prometheus.MustRegister(exporter)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		htmlBody := "<a href='/metrics'>metrics</a>"
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte(htmlBody))
+		if err != nil {
+			fmt.Println("Error writing response:", err)
 		}
-		return c.String(http.StatusOK, strings.Join(out, "\n"))
 	})
-	err = e.Start(host + ":3130")
+	http.Handle("/metrics", promhttp.Handler())
+	fmt.Printf("Listening on %s:3130\n", host)
+	err = http.ListenAndServe(host+":3130", nil)
 	if err != nil {
 		return util.WrapError(err)
 	}
