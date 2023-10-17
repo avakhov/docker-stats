@@ -33,7 +33,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	for _, c := range e.stats.GetContainers() {
-    id := c.ID[:8]
+		id := c.ID[:8]
 		ch <- prometheus.MustNewConstMetric(upMetric, prometheus.GaugeValue, float64(c.Up), append(c.Labels, id)...)
 		ch <- prometheus.MustNewConstMetric(memUsedMetric, prometheus.GaugeValue, float64(c.MemUsed), append(c.Labels, id)...)
 		ch <- prometheus.MustNewConstMetric(memTotalMetric, prometheus.GaugeValue, float64(c.MemTotal), append(c.Labels, id)...)
