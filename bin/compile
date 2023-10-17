@@ -1,0 +1,37 @@
+#!/bin/bash
+cd "$(dirname "$0")/.."
+set -e
+
+if [ $# -lt 1 ]; then
+  echo "./bin/compile <version>"
+  exit -1
+fi
+version=$1
+
+rm -fr build
+mkdir -p build
+pushd build
+  git clone git@github.com:avakhov/docker-stats repo
+  pushd repo
+    git checkout $ref
+    rm -fr .git
+    echo "package util"                     > util/version.go
+    echo "func GetVersion() string {"      >> util/version.go
+    echo "  return \"$version\""           >> util/version.go
+    echo "}"                               >> util/version.go
+    GOOS=darwin GOARCH=amd64 go build -o ../out/darwin-amd64/docker-stats
+    GOOS=darwin GOARCH=arm64 go build -o ../out/darwin-arm64/docker-stats
+    GOOS=linux GOARCH=amd64 go build -o ../out/linux-amd64/docker-stats
+  popd
+  pushd out/darwin-amd64
+    tar czvf ../../docker-stats-darwin-amd64-$version.tar.gz docker-stats
+  popd
+  pushd out/darwin-arm64
+    tar czvf ../../docker-stats-darwin-arm64-$version.tar.gz docker-stats
+  popd
+  pushd out/linux-amd64
+    tar czvf ../../docker-stats-linux-amd64-$version.tar.gz docker-stats
+  popd
+popd
+
+echo done
