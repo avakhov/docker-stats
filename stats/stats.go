@@ -134,7 +134,10 @@ func (s *Stats) grabContainers(dockerClient *client.Client) error {
 	// grab stats
 	wg := sync.WaitGroup{}
 	for id, _ := range current {
-		if current[id].Up == 0 {
+		s.mu.Lock()
+		up := current[id].Up
+		s.mu.Unlock()
+		if up == 0 {
 			continue
 		}
 		wg.Add(1)
@@ -157,6 +160,7 @@ func (s *Stats) grabContainers(dockerClient *client.Client) error {
 				fmt.Printf("ERROR 3: %s\n", err.Error())
 				return
 			}
+			s.mu.Lock()
 			c := current[id]
 			c.MemUsed = stat.MemoryStats.Usage
 			c.MemTotal = stat.MemoryStats.Limit
@@ -168,6 +172,7 @@ func (s *Stats) grabContainers(dockerClient *client.Client) error {
 				c.CpuUsed = 0.0
 			}
 			current[id] = c
+			s.mu.Unlock()
 		}(id)
 	}
 	wg.Wait()
