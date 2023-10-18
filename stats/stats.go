@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-var LABELS = []string{"project"}
-var EXPIRE_AT = 1 * time.Minute
+var EXPIRE_AT = 5 * time.Minute
 
 type jsonStats struct {
 	MemoryStats struct {
@@ -50,12 +49,14 @@ type Container struct {
 type Stats struct {
 	tick       int
 	mu         sync.Mutex
+	grabLabels []string
 	containers map[string]Container
 }
 
-func NewStats() *Stats {
+func NewStats(labels []string) *Stats {
 	return &Stats{
 		tick:       0,
+		grabLabels: labels,
 		containers: map[string]Container{},
 	}
 }
@@ -108,8 +109,8 @@ func (s *Stats) grabContainers(dockerClient *client.Client) error {
 				expiredAt: time.Now().Add(EXPIRE_AT),
 			}
 		}
-		container.Labels = make([]string, len(LABELS))
-		for i, label := range LABELS {
+		container.Labels = make([]string, len(s.grabLabels))
+		for i, label := range s.grabLabels {
 			lab, ok := c.Labels[label]
 			if ok {
 				container.Labels[i] = lab

@@ -9,35 +9,39 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 	"os"
+	"strings"
 )
 
-var upMetric = prometheus.NewDesc("docker_up", "is container up", append(stats.LABELS, "id"), nil)
-var memUsedMetric = prometheus.NewDesc("docker_mem_used", "memory used", append(stats.LABELS, "id"), nil)
-var memTotalMetric = prometheus.NewDesc("docker_mem_total", "memory total", append(stats.LABELS, "id"), nil)
-var cpuUsedMetric = prometheus.NewDesc("docker_cpu_used", "cpu used", append(stats.LABELS, "id"), nil)
-
 type Exporter struct {
-	stats *stats.Stats
+	stats   *stats.Stats
+	metrics map[string]*prometheus.Desc
 }
 
-func NewExporter(stats *stats.Stats) *Exporter {
-	return &Exporter{stats: stats}
+func NewExporter(stats *stats.Stats, grabLabels []string) *Exporter {
+	out := Exporter{
+		stats:   stats,
+		metrics: map[string]*prometheus.Desc{},
+	}
+	out.metrics["upMetric"] = prometheus.NewDesc("docker_up", "is container up", append(grabLabels, "id"), nil)
+	out.metrics["memUsedMetric"] = prometheus.NewDesc("docker_mem_used", "memory used", append(grabLabels, "id"), nil)
+	out.metrics["memTotalMetric"] = prometheus.NewDesc("docker_mem_total", "memory total", append(grabLabels, "id"), nil)
+	out.metrics["cpuUsedMetric"] = prometheus.NewDesc("docker_cpu_used", "cpu used", append(grabLabels, "id"), nil)
+	return &out
 }
 
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
-	ch <- upMetric
-	ch <- memUsedMetric
-	ch <- memTotalMetric
-	ch <- cpuUsedMetric
+	for _, metric := range e.metrics {
+		ch <- metric
+	}
 }
 
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	for _, c := range e.stats.GetContainers() {
 		id := c.ID[:8]
-		ch <- prometheus.MustNewConstMetric(upMetric, prometheus.GaugeValue, float64(c.Up), append(c.Labels, id)...)
-		ch <- prometheus.MustNewConstMetric(memUsedMetric, prometheus.GaugeValue, float64(c.MemUsed), append(c.Labels, id)...)
-		ch <- prometheus.MustNewConstMetric(memTotalMetric, prometheus.GaugeValue, float64(c.MemTotal), append(c.Labels, id)...)
-		ch <- prometheus.MustNewConstMetric(cpuUsedMetric, prometheus.GaugeValue, c.CpuUsed, append(c.Labels, id)...)
+		ch <- prometheus.MustNewConstMetric(e.metrics["upMetric"], prometheus.GaugeValue, float64(c.Up), append(c.Labels, id)...)
+		ch <- prometheus.MustNewConstMetric(e.metrics["memUsedMetric"], prometheus.GaugeValue, float64(c.MemUsed), append(c.Labels, id)...)
+		ch <- prometheus.MustNewConstMetric(e.metrics["memTotalMetric"], prometheus.GaugeValue, float64(c.MemTotal), append(c.Labels, id)...)
+		ch <- prometheus.MustNewConstMetric(e.metrics["cpuUsedMetric"], prometheus.GaugeValue, c.CpuUsed, append(c.Labels, id)...)
 	}
 }
 
@@ -46,8 +50,10 @@ func doMain(args []string) error {
 	flagSet := flag.NewFlagSet("run", flag.ContinueOnError)
 	var host string
 	var showHelp bool
+	var labels string
 	flagSet.StringVar(&host, "host", "127.0.0.1", "bind to host")
 	flagSet.BoolVar(&showHelp, "help", false, "print help")
+	flagSet.StringVar(&labels, "labels", "", "comma separated labels values")
 	err := flagSet.Parse(args)
 	if err != nil {
 		return util.WrapError(err)
@@ -60,11 +66,15 @@ func doMain(args []string) error {
 	}
 
 	// run stats grabber
-	stats := stats.NewStats()
+	grabLabels := []string{}
+	if labels != "" {
+		grabLabels = strings.Split(labels, ",")
+	}
+	stats := stats.NewStats(grabLabels)
 	go stats.Run()
 
 	// run expoter
-	exporter := NewExporter(stats)
+	exporter := NewExporter(stats, grabLabels)
 	prometheus.MustRegister(exporter)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		htmlBody := "<a href='/metrics'>metrics</a>"
@@ -91,5 +101,4 @@ func main() {
 		fmt.Printf("ERROR: %s\n", err.Error())
 		os.Exit(1)
 	}
-	fmt.Printf("done\n")
 }
