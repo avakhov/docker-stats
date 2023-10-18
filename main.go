@@ -10,23 +10,27 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 type Exporter struct {
-	stats   *stats.Stats
-	metrics map[string]*prometheus.Desc
+	startedAt time.Time
+	stats     *stats.Stats
+	metrics   map[string]*prometheus.Desc
 }
 
 func NewExporter(stats *stats.Stats, grabLabels []string) *Exporter {
 	out := Exporter{
-		stats:   stats,
-		metrics: map[string]*prometheus.Desc{},
+		startedAt: time.Now(),
+		stats:     stats,
+		metrics:   map[string]*prometheus.Desc{},
 	}
 	out.metrics["upMetric"] = prometheus.NewDesc("docker_up", "is container up", append(grabLabels, "id"), nil)
 	out.metrics["memUsedMetric"] = prometheus.NewDesc("docker_mem_used", "memory used", append(grabLabels, "id"), nil)
 	out.metrics["memTotalMetric"] = prometheus.NewDesc("docker_mem_total", "memory total", append(grabLabels, "id"), nil)
 	out.metrics["cpuUsedMetric"] = prometheus.NewDesc("docker_cpu_used", "cpu used", append(grabLabels, "id"), nil)
 	out.metrics["version"] = prometheus.NewDesc("docker_stats_version", "docker-stats version", []string{"version"}, nil)
+	out.metrics["uptime"] = prometheus.NewDesc("docker_stats_uptime", "docker-stats uptime", nil, nil)
 	return &out
 }
 
@@ -45,6 +49,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(e.metrics["cpuUsedMetric"], prometheus.GaugeValue, c.CpuUsed, append(c.Labels, id)...)
 	}
 	ch <- prometheus.MustNewConstMetric(e.metrics["version"], prometheus.GaugeValue, 1.0, util.GetVersion())
+	ch <- prometheus.MustNewConstMetric(e.metrics["uptime"], prometheus.GaugeValue, time.Since(e.startedAt).Seconds())
 }
 
 func doMain(args []string) error {
