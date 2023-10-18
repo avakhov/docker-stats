@@ -26,6 +26,7 @@ func NewExporter(stats *stats.Stats, grabLabels []string) *Exporter {
 	out.metrics["memUsedMetric"] = prometheus.NewDesc("docker_mem_used", "memory used", append(grabLabels, "id"), nil)
 	out.metrics["memTotalMetric"] = prometheus.NewDesc("docker_mem_total", "memory total", append(grabLabels, "id"), nil)
 	out.metrics["cpuUsedMetric"] = prometheus.NewDesc("docker_cpu_used", "cpu used", append(grabLabels, "id"), nil)
+	out.metrics["version"] = prometheus.NewDesc("docker_stats_version", "docker-stats version", []string{"version"}, nil)
 	return &out
 }
 
@@ -43,6 +44,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(e.metrics["memTotalMetric"], prometheus.GaugeValue, float64(c.MemTotal), append(c.Labels, id)...)
 		ch <- prometheus.MustNewConstMetric(e.metrics["cpuUsedMetric"], prometheus.GaugeValue, c.CpuUsed, append(c.Labels, id)...)
 	}
+	ch <- prometheus.MustNewConstMetric(e.metrics["version"], prometheus.GaugeValue, 1.0, util.GetVersion())
 }
 
 func doMain(args []string) error {
