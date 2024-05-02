@@ -49,7 +49,7 @@ func GetCounts() (int, int, error) {
 			}
 		}
 	}
-	return psEl, psAx, nil
+	return psAx, psEl, nil
 }
 
 func (s *Stats) Run() {
@@ -58,14 +58,14 @@ func (s *Stats) Run() {
 		fmt.Printf("[%s] stats tick: %d\n", time.Now().Format("2006-01-02 15:04:05"), s.tick)
 
 		// get ticks
-		a, b, err := GetCounts()
+		ax, el, err := GetCounts()
 		if err != nil {
 			fmt.Printf("ERROR: %s\n", err.Error())
 			s.psAx = 0
 			s.psEl = 0
 		} else {
-			s.psAx = a
-			s.psEl = b
+			s.psAx = ax
+			s.psEl = el
 		}
 		time.Sleep(10 * time.Second)
 	}

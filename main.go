@@ -38,8 +38,8 @@ func NewExporter(dockerMetrics bool, dockerLabels []string, psMetrics bool) *Exp
 	if psMetrics {
 		out.psStats = ps.NewStats()
 		go out.psStats.Run()
-		out.metrics["psAxMetric"] = prometheus.NewDesc("ps_ax", "ps ax count", nil, nil)
-		out.metrics["psElMetric"] = prometheus.NewDesc("ps_el", "ps -eL count", nil, nil)
+		out.metrics["psAxMetric"] = prometheus.NewDesc("stats_ps_ax", "ps ax count", nil, nil)
+		out.metrics["psElMetric"] = prometheus.NewDesc("stats_ps_el", "ps -eL count", nil, nil)
 	}
 	out.metrics["version"] = prometheus.NewDesc("docker_stats_version", "docker-stats version", []string{"version"}, nil)
 	out.metrics["uptime"] = prometheus.NewDesc("docker_stats_uptime", "docker-stats uptime", nil, nil)
