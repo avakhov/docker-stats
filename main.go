@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/avakhov/docker-stats/ps"
 	"github.com/avakhov/docker-stats/stats"
 	"github.com/avakhov/docker-stats/util"
+	"github.com/avakhov/ext"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
@@ -14,21 +16,31 @@ import (
 )
 
 type Exporter struct {
-	startedAt time.Time
-	stats     *stats.Stats
-	metrics   map[string]*prometheus.Desc
+	startedAt   time.Time
+	metrics     map[string]*prometheus.Desc
+	dockerStats *stats.Stats
+	psStats     *ps.Stats
 }
 
-func NewExporter(stats *stats.Stats, grabLabels []string) *Exporter {
+func NewExporter(dockerMetrics bool, dockerLabels []string, psMetrics bool) *Exporter {
 	out := Exporter{
 		startedAt: time.Now(),
-		stats:     stats,
 		metrics:   map[string]*prometheus.Desc{},
 	}
-	out.metrics["upMetric"] = prometheus.NewDesc("docker_up", "is container up", append(grabLabels, "id"), nil)
-	out.metrics["memUsedMetric"] = prometheus.NewDesc("docker_mem_used", "memory used", append(grabLabels, "id"), nil)
-	out.metrics["memTotalMetric"] = prometheus.NewDesc("docker_mem_total", "memory total", append(grabLabels, "id"), nil)
-	out.metrics["cpuUsedMetric"] = prometheus.NewDesc("docker_cpu_used", "cpu used", append(grabLabels, "id"), nil)
+	if dockerMetrics {
+		out.dockerStats = stats.NewStats(dockerLabels)
+		go out.dockerStats.Run()
+		out.metrics["upMetric"] = prometheus.NewDesc("docker_up", "is container up", append(dockerLabels, "id"), nil)
+		out.metrics["memUsedMetric"] = prometheus.NewDesc("docker_mem_used", "memory used", append(dockerLabels, "id"), nil)
+		out.metrics["memTotalMetric"] = prometheus.NewDesc("docker_mem_total", "memory total", append(dockerLabels, "id"), nil)
+		out.metrics["cpuUsedMetric"] = prometheus.NewDesc("docker_cpu_used", "cpu used", append(dockerLabels, "id"), nil)
+	}
+	if psMetrics {
+		out.psStats = ps.NewStats()
+		go out.psStats.Run()
+		out.metrics["psAxMetric"] = prometheus.NewDesc("stats_ps_ax", "ps ax count", nil, nil)
+		out.metrics["psElMetric"] = prometheus.NewDesc("stats_ps_el", "ps -eL count", nil, nil)
+	}
 	out.metrics["version"] = prometheus.NewDesc("docker_stats_version", "docker-stats version", []string{"version"}, nil)
 	out.metrics["uptime"] = prometheus.NewDesc("docker_stats_uptime", "docker-stats uptime", nil, nil)
 	return &out
@@ -41,12 +53,18 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 }
 
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
-	for _, c := range e.stats.GetContainers() {
-		id := c.ID[:8]
-		ch <- prometheus.MustNewConstMetric(e.metrics["upMetric"], prometheus.GaugeValue, float64(c.Up), append(c.Labels, id)...)
-		ch <- prometheus.MustNewConstMetric(e.metrics["memUsedMetric"], prometheus.GaugeValue, float64(c.MemUsed), append(c.Labels, id)...)
-		ch <- prometheus.MustNewConstMetric(e.metrics["memTotalMetric"], prometheus.GaugeValue, float64(c.MemTotal), append(c.Labels, id)...)
-		ch <- prometheus.MustNewConstMetric(e.metrics["cpuUsedMetric"], prometheus.GaugeValue, c.CpuUsed, append(c.Labels, id)...)
+	if e.dockerStats != nil {
+		for _, c := range e.dockerStats.GetContainers() {
+			id := c.ID[:8]
+			ch <- prometheus.MustNewConstMetric(e.metrics["upMetric"], prometheus.GaugeValue, float64(c.Up), append(c.Labels, id)...)
+			ch <- prometheus.MustNewConstMetric(e.metrics["memUsedMetric"], prometheus.GaugeValue, float64(c.MemUsed), append(c.Labels, id)...)
+			ch <- prometheus.MustNewConstMetric(e.metrics["memTotalMetric"], prometheus.GaugeValue, float64(c.MemTotal), append(c.Labels, id)...)
+			ch <- prometheus.MustNewConstMetric(e.metrics["cpuUsedMetric"], prometheus.GaugeValue, c.CpuUsed, append(c.Labels, id)...)
+		}
+	}
+	if e.psStats != nil {
+		ch <- prometheus.MustNewConstMetric(e.metrics["psAxMetric"], prometheus.GaugeValue, float64(e.psStats.GetPsAx()))
+		ch <- prometheus.MustNewConstMetric(e.metrics["psElMetric"], prometheus.GaugeValue, float64(e.psStats.GetPsEl()))
 	}
 	ch <- prometheus.MustNewConstMetric(e.metrics["version"], prometheus.GaugeValue, 1.0, util.GetVersion())
 	ch <- prometheus.MustNewConstMetric(e.metrics["uptime"], prometheus.GaugeValue, time.Since(e.startedAt).Seconds())
@@ -58,12 +76,16 @@ func doMain(args []string) error {
 	var host string
 	var showHelp bool
 	var labels string
+	var dockerMetrics bool
+	var psMetrics bool
 	flagSet.StringVar(&host, "host", "127.0.0.1", "bind to host")
 	flagSet.BoolVar(&showHelp, "help", false, "print help")
 	flagSet.StringVar(&labels, "labels", "", "comma separated labels values")
+	flagSet.BoolVar(&dockerMetrics, "docker-metrics", false, "enable docker metrics")
+	flagSet.BoolVar(&psMetrics, "ps-metrics", false, "enable ps metrics")
 	err := flagSet.Parse(args)
 	if err != nil {
-		return util.WrapError(err)
+		return ext.WrapError(err)
 	}
 	if showHelp {
 		fmt.Printf("Usage: docker-stats [options]\n")
@@ -71,17 +93,13 @@ func doMain(args []string) error {
 		flagSet.PrintDefaults()
 		return nil
 	}
-
-	// run stats grabber
-	grabLabels := []string{}
+	dockerLabels := []string{}
 	if labels != "" {
-		grabLabels = strings.Split(labels, ",")
+		dockerLabels = strings.Split(labels, ",")
 	}
-	stats := stats.NewStats(grabLabels)
-	go stats.Run()
 
-	// run expoter
-	exporter := NewExporter(stats, grabLabels)
+	// run exporter
+	exporter := NewExporter(dockerMetrics, dockerLabels, psMetrics)
 	prometheus.MustRegister(exporter)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		htmlBody := "<a href='/metrics'>metrics</a>"
@@ -96,7 +114,7 @@ func doMain(args []string) error {
 	fmt.Printf("Listening on %s:3130\n", host)
 	err = http.ListenAndServe(host+":3130", nil)
 	if err != nil {
-		return util.WrapError(err)
+		return ext.WrapError(err)
 	}
 	return nil
 }

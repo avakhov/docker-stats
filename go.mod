@@ -3,6 +3,7 @@ module github.com/avakhov/docker-stats
 go 1.19
 
 require (
+	github.com/avakhov/ext v0.0.0-20231222224847-76ed2aff3ac7
 	github.com/docker/docker v24.0.6+incompatible
 	github.com/prometheus/client_golang v1.17.0
 )
