@@ -5,4 +5,4 @@ t:
 	go mod tidy -v
 
 r:
-	reflex -s -- go run main.go
+	reflex -s -- go run main.go -docker-metrics

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/avakhov/docker-stats/util"
+	"github.com/avakhov/ext"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"io"
@@ -92,7 +93,7 @@ func (s *Stats) Run() {
 func (s *Stats) grabContainers(dockerClient *client.Client) error {
 	containers, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{})
 	if err != nil {
-		return util.WrapError(err)
+		return ext.WrapError(err)
 	}
 
 	// prepare
